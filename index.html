@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Employee Form</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    body { background: #f0f2f5; }
+    .card { max-width: 520px; margin: 60px auto; border-radius: 12px; }
+    .card-header { background: #0d6efd; color: #fff; font-weight: 600; font-size: 1.1rem; border-radius: 12px 12px 0 0; }
+  </style>
+</head>
+<body>
+<div class="card shadow">
+  <div class="card-header text-center py-3">Employee Data Entry</div>
+  <div class="card-body p-4">
+    <form id="empForm" novalidate>
+
+      <div class="mb-3">
+        <label class="form-label">Employee ID</label>
+        <input type="number" id="id" class="form-control" placeholder="Enter Employee ID" min="1" required/>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Employee Name</label>
+        <input type="text" id="name" class="form-control" placeholder="Enter Name" disabled required/>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Salary</label>
+        <input type="number" id="salary" class="form-control" placeholder="Enter Salary" disabled min="0" required/>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">HRA</label>
+        <input type="number" id="hra" class="form-control" placeholder="Enter HRA" disabled min="0" required/>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">DA</label>
+        <input type="number" id="da" class="form-control" placeholder="Enter DA" disabled min="0" required/>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Deduction</label>
+        <input type="number" id="deduction" class="form-control" placeholder="Enter Deduction" disabled min="0" required/>
+      </div>
+
+      <div id="alertBox" class="alert d-none mb-3 py-2"></div>
+
+      <div class="d-flex gap-2 justify-content-center mt-3">
+        <button type="button" id="btnSave"   class="btn btn-success px-4"  disabled>Save</button>
+        <button type="button" id="btnChange" class="btn btn-primary px-4"  disabled>Change</button>
+        <button type="button" id="btnReset"  class="btn btn-secondary px-4" disabled>Reset</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<script>
+  const DB_NAME = 'EMP-DB', STORE = 'EmpData';
+  const fields = ['name','salary','hra','da','deduction'];
+  let db;
+
+  // ── IndexedDB setup ──────────────────────────────────────────────
+  const req = indexedDB.open(DB_NAME, 1);
+  req.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath: 'id' });
+  req.onsuccess = e => { db = e.target.result; resetForm(); };
+  req.onerror   = () => showAlert('Failed to open database.', 'danger');
+
+  // ── Helpers ──────────────────────────────────────────────────────
+  function $(id){ return document.getElementById(id); }
+
+  function showAlert(msg, type = 'success'){
+    const box = $('alertBox');
+    box.className = `alert alert-${type} mb-3 py-2`;
+    box.textContent = msg;
+    if(type === 'success') setTimeout(() => box.classList.add('d-none'), 2500);
+  }
+
+  function hideAlert(){ $('alertBox').classList.add('d-none'); }
+
+  function setButtons(save, change, reset){
+    $('btnSave').disabled   = !save;
+    $('btnChange').disabled = !change;
+    $('btnReset').disabled  = !reset;
+  }
+
+  function enableFields(enable, keepIdDisabled = false){
+    fields.forEach(f => $(f).disabled = !enable);
+    if(keepIdDisabled) $('id').disabled = true;
+  }
+
+  function clearFields(){
+    ['id', ...fields].forEach(f => { $(f).value = ''; $(f).classList.remove('is-invalid'); });
+  }
+
+  function resetForm(){
+    clearFields();
+    $('id').disabled = false;
+    enableFields(false);
+    setButtons(false, false, false);
+    hideAlert();
+    setTimeout(() => $('id').focus(), 50);
+  }
+
+  function isValid(){
+    let ok = true;
+    fields.forEach(f => {
+      const el = $(f);
+      if(el.value.trim() === ''){
+        el.classList.add('is-invalid'); ok = false;
+      } else {
+        el.classList.remove('is-invalid');
+      }
+    });
+    return ok;
+  }
+
+  function populate(rec){
+    fields.forEach(f => $(f).value = rec[f]);
+  }
+
+  // ── ID field: lookup on blur / Enter ────────────────────────────
+  function lookupId(){
+    const idVal = parseInt($('id').value);
+    if(!idVal || idVal < 1){ resetForm(); return; }
+
+    const tx = db.transaction(STORE, 'readonly');
+    tx.objectStore(STORE).get(idVal).onsuccess = e => {
+      const rec = e.target.result;
+      if(rec){
+        // Existing record → Change mode
+        populate(rec);
+        $('id').disabled = true;
+        enableFields(true, true);
+        setButtons(false, true, true);
+        hideAlert();
+        $('name').focus();
+      } else {
+        // New record → Save mode
+        enableFields(true);
+        setButtons(true, false, true);
+        hideAlert();
+        $('name').focus();
+      }
+    };
+  }
+
+  $('id').addEventListener('blur', lookupId);
+  $('id').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); lookupId(); } });
+
+  // ── Save ─────────────────────────────────────────────────────────
+  $('btnSave').addEventListener('click', () => {
+    if(!isValid()){ showAlert('Please fill all fields.', 'warning'); return; }
+    const rec = { id: parseInt($('id').value) };
+    fields.forEach(f => rec[f] = f === 'name' ? $(f).value.trim() : parseFloat($(f).value));
+
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).add(rec).onsuccess = () => {
+      showAlert('Record saved successfully!');
+      resetForm();
+    };
+    tx.onerror = () => showAlert('Save failed. ID may already exist.', 'danger');
+  });
+
+  // ── Change ───────────────────────────────────────────────────────
+  $('btnChange').addEventListener('click', () => {
+    if(!isValid()){ showAlert('Please fill all fields.', 'warning'); return; }
+    const rec = { id: parseInt($('id').value) };
+    fields.forEach(f => rec[f] = f === 'name' ? $(f).value.trim() : parseFloat($(f).value));
+
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(rec).onsuccess = () => {
+      showAlert('Record updated successfully!');
+      resetForm();
+    };
+    tx.onerror = () => showAlert('Update failed.', 'danger');
+  });
+
+  // ── Reset ────────────────────────────────────────────────────────
+  $('btnReset').addEventListener('click', resetForm);
+</script>
+</body>
+</html>
